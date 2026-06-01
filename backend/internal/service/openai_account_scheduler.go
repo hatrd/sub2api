@@ -383,6 +383,9 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	cfg := s.service.schedulingConfig()
 	// WaitPlan.MaxConcurrency 使用 Concurrency（非 EffectiveLoadFactor），因为 WaitPlan 控制的是 Redis 实际并发槽位等待。
 	if s.service.concurrencyService != nil {
+		if _, waitErr := s.service.concurrencyService.GetAccountWaitingCount(ctx, accountID); waitErr != nil {
+			return nil, nil
+		}
 		return &AccountSelectionResult{
 			Account: account,
 			WaitPlan: &AccountWaitPlan{
@@ -944,7 +947,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 			continue
 		}
 		if s.service.concurrencyService != nil {
-			waitingCount, _ := s.service.concurrencyService.GetAccountWaitingCount(ctx, fresh.ID)
+			waitingCount, waitErr := s.service.concurrencyService.GetAccountWaitingCount(ctx, fresh.ID)
+			if waitErr != nil {
+				continue
+			}
 			if cfg.FallbackMaxWaiting > 0 && waitingCount >= cfg.FallbackMaxWaiting {
 				continue
 			}

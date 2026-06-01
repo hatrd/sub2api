@@ -1579,7 +1579,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 			}
 
 			if stickyAccountID > 0 && stickyAccountID == account.ID && s.concurrencyService != nil {
-				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				waitingCount, waitErr := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				if waitErr != nil {
+					localExcluded[account.ID] = struct{}{}
+					continue
+				}
 				if waitingCount < cfg.StickySessionMaxWaiting {
 					// 对于等待计划的情况，也需要先检查会话限制
 					if !s.checkAndRegisterSession(ctx, account, sessionHash) {
@@ -1595,7 +1599,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 				}
 			}
 			if s.concurrencyService != nil {
-				waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				waitingCount, waitErr := s.concurrencyService.GetAccountWaitingCount(ctx, account.ID)
+				if waitErr != nil {
+					localExcluded[account.ID] = struct{}{}
+					continue
+				}
 				if cfg.FallbackMaxWaiting > 0 && waitingCount >= cfg.FallbackMaxWaiting {
 					localExcluded[account.ID] = struct{}{}
 					continue
@@ -1775,8 +1783,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 							}
 
 							if stickyCacheMissReason == "" {
-								waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, stickyAccountID)
-								if waitingCount < cfg.StickySessionMaxWaiting {
+								waitingCount, waitErr := s.concurrencyService.GetAccountWaitingCount(ctx, stickyAccountID)
+								if waitErr != nil {
+									stickyCacheMissReason = "wait_queue_lookup_failed"
+								} else if waitingCount < cfg.StickySessionMaxWaiting {
 									// 会话数量限制检查（等待计划也需要占用会话配额）
 									if !s.checkAndRegisterSession(ctx, stickyAccount, sessionHash) {
 										stickyCacheMissReason = "session_limit"
@@ -1978,8 +1988,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 						)
 					}
 
-					waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
-					if waitingCount < cfg.StickySessionMaxWaiting {
+					waitingCount, waitErr := s.concurrencyService.GetAccountWaitingCount(ctx, accountID)
+					if waitErr == nil && waitingCount < cfg.StickySessionMaxWaiting {
 						// 会话数量限制检查（等待计划也需要占用会话配额）
 						if !s.checkAndRegisterSession(ctx, account, sessionHash) {
 							// 会话限制已满，继续到 Layer 2
@@ -2143,7 +2153,10 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	// ============ Layer 3: 兜底排队 ============
 	s.sortCandidatesForFallback(candidates, preferOAuth, cfg.FallbackSelectionMode)
 	for _, acc := range candidates {
-		waitingCount, _ := s.concurrencyService.GetAccountWaitingCount(ctx, acc.ID)
+		waitingCount, waitErr := s.concurrencyService.GetAccountWaitingCount(ctx, acc.ID)
+		if waitErr != nil {
+			continue
+		}
 		if cfg.FallbackMaxWaiting > 0 && waitingCount >= cfg.FallbackMaxWaiting {
 			continue
 		}
