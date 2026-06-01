@@ -673,6 +673,38 @@ func TestOpenAISelectAccountForModelWithExclusions_SetsStickyBinding(t *testing.
 	}
 }
 
+func TestOpenAISelectAccountWithLoadAwareness_StickyWaitPlanCountErrorSkipsSticky(t *testing.T) {
+	sessionHash := "sticky-wait-error"
+	groupID := int64(1)
+	repo := stubOpenAIAccountRepo{
+		accounts: []Account{
+			{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 1},
+		},
+	}
+	cache := &stubGatewayCache{
+		sessionBindings: map[string]int64{"openai:" + sessionHash: 1},
+	}
+	concurrencyCache := stubConcurrencyCache{
+		acquireResults: map[int64]bool{1: false},
+		waitErr:        errors.New("waiting count unavailable"),
+	}
+
+	svc := &OpenAIGatewayService{
+		accountRepo:        repo,
+		cache:              cache,
+		concurrencyService: NewConcurrencyService(concurrencyCache),
+		cfg: &config.Config{
+			Gateway: config.GatewayConfig{
+				Scheduling: config.GatewaySchedulingConfig{LoadBatchEnabled: true},
+			},
+		},
+	}
+
+	selection, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, sessionHash, "gpt-4", nil)
+	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+	require.Nil(t, selection)
+}
+
 func TestOpenAISelectAccountWithLoadAwareness_StickyWaitPlan(t *testing.T) {
 	sessionHash := "sticky-wait"
 	groupID := int64(1)

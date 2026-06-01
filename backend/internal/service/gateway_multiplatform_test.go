@@ -2889,6 +2889,44 @@ func TestGatewayService_SelectAccountWithLoadAwareness(t *testing.T) {
 		require.Equal(t, int64(3), cache.sessionBindings["fallback"])
 	})
 
+	t.Run("粘性等待-计数失败跳过等待计划", func(t *testing.T) {
+		repo := &mockAccountRepoForPlatform{
+			accounts: []Account{
+				{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeSetupToken, Priority: 1, Status: StatusActive, Schedulable: true, Concurrency: 1, Extra: map[string]any{"max_sessions": 1}},
+			},
+			accountsByID: map[int64]*Account{},
+		}
+		for i := range repo.accounts {
+			repo.accountsByID[repo.accounts[i].ID] = &repo.accounts[i]
+		}
+
+		cfg := testConfig()
+		cfg.Gateway.Scheduling.LoadBatchEnabled = true
+		cfg.Gateway.Scheduling.StickySessionMaxWaiting = 1
+
+		cache := &mockGatewayCacheForPlatform{sessionBindings: map[string]int64{"sticky-count-error": 1}}
+		concurrencyCache := &mockConcurrencyCache{
+			acquireResults: map[int64]bool{1: false},
+			loadMap: map[int64]*AccountLoadInfo{
+				1: {AccountID: 1, LoadRate: 100},
+			},
+			waitErr: errors.New("waiting count unavailable"),
+		}
+		sessionLimitCache := &mockSessionLimitCacheForPlatform{}
+		svc := &GatewayService{
+			accountRepo:        repo,
+			cache:              cache,
+			cfg:                cfg,
+			concurrencyService: NewConcurrencyService(concurrencyCache),
+			sessionLimitCache:  sessionLimitCache,
+		}
+
+		result, err := svc.SelectAccountWithLoadAwareness(ctx, nil, "sticky-count-error", "claude-3-5-sonnet-20241022", nil, "", int64(0))
+		require.ErrorIs(t, err, ErrNoAvailableAccounts)
+		require.Nil(t, result)
+		require.Empty(t, sessionLimitCache.registered, "should not register a session when sticky wait-count lookup fails")
+	})
+
 	t.Run("兜底等待-满队列跳过前不注册会话", func(t *testing.T) {
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
