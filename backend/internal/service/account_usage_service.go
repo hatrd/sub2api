@@ -1069,6 +1069,9 @@ func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now t
 
 	switch window {
 	case "5h":
+		if !codex5hUsedPercentSemanticsIsCurrent(extra) {
+			return nil
+		}
 		usedPercentKey = "codex_5h_used_percent"
 		resetAfterKey = "codex_5h_reset_after_seconds"
 		resetAtKey = "codex_5h_reset_at"

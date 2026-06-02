@@ -706,8 +706,9 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_AutoPauseBy5hT
 		Concurrency: 1,
 		Priority:    0,
 		Extra: map[string]any{
-			"codex_5h_used_percent":   95.0,
-			"auto_pause_5h_threshold": 0.95,
+			"codex_5h_used_percent":           95.0,
+			"codex_5h_used_percent_semantics": codex5hUsedPercentSemanticsCurrent,
+			"auto_pause_5h_threshold":         0.95,
 		},
 	}
 	secondary := Account{ID: 35002, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
@@ -790,7 +791,8 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefa
 		Concurrency: 1,
 		Priority:    0,
 		Extra: map[string]any{
-			"codex_5h_used_percent": 95.0,
+			"codex_5h_used_percent":           95.0,
+			"codex_5h_used_percent_semantics": codex5hUsedPercentSemanticsCurrent,
 		},
 	}
 	secondary := Account{ID: 35402, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
@@ -800,6 +802,30 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_UsesGlobalDefa
 	require.NoError(t, err)
 	require.NotNil(t, account)
 	require.Equal(t, int64(35402), account.ID)
+}
+
+func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_IgnoresLegacyFiveHourSnapshot(t *testing.T) {
+	ctx := withOpenAIQuotaAutoPauseSettings(context.Background(), OpsOpenAIAccountQuotaAutoPauseSettings{DefaultThreshold5h: 0.95})
+	primary := Account{
+		ID:          35411,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    0,
+		Extra: map[string]any{
+			"codex_5h_used_percent": 94.0,
+			"codex_5h_reset_at":     time.Now().Add(time.Hour).Format(time.RFC3339),
+		},
+	}
+	secondary := Account{ID: 35412, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
+
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, int64(35411), account.ID)
 }
 
 // Regression: a per-account explicit-disable flag exempts the account from auto-pause
@@ -873,9 +899,10 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageWind
 		Concurrency: 1,
 		Priority:    0,
 		Extra: map[string]any{
-			"codex_5h_used_percent":   99.0,
-			"auto_pause_5h_threshold": 0.95,
-			"codex_5h_reset_at":       time.Now().Add(-time.Minute).Format(time.RFC3339),
+			"codex_5h_used_percent":           99.0,
+			"codex_5h_used_percent_semantics": codex5hUsedPercentSemanticsCurrent,
+			"auto_pause_5h_threshold":         0.95,
+			"codex_5h_reset_at":               time.Now().Add(-time.Minute).Format(time.RFC3339),
 		},
 	}
 	secondary := Account{ID: 35502, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
@@ -899,9 +926,10 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshUsageWind
 		Concurrency: 1,
 		Priority:    0,
 		Extra: map[string]any{
-			"codex_5h_used_percent":   99.0,
-			"auto_pause_5h_threshold": 0.95,
-			"codex_5h_reset_at":       time.Now().Add(time.Hour).Format(time.RFC3339),
+			"codex_5h_used_percent":           99.0,
+			"codex_5h_used_percent_semantics": codex5hUsedPercentSemanticsCurrent,
+			"auto_pause_5h_threshold":         0.95,
+			"codex_5h_reset_at":               time.Now().Add(time.Hour).Format(time.RFC3339),
 		},
 	}
 	secondary := Account{ID: 35602, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
@@ -1577,8 +1605,9 @@ func TestOpenAIGatewayService_SelectAccountWithScheduler_LoadBalanceTopKExcludes
 			Concurrency: 1,
 			Priority:    0,
 			Extra: map[string]any{
-				"codex_5h_used_percent":   96.0,
-				"auto_pause_5h_threshold": 0.95,
+				"codex_5h_used_percent":           96.0,
+				"codex_5h_used_percent_semantics": codex5hUsedPercentSemanticsCurrent,
+				"auto_pause_5h_threshold":         0.95,
 			},
 		},
 		{
