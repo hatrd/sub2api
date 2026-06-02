@@ -61,6 +61,7 @@ func TestOpenAIGatewayService_SelectAccountByPreviousResponseID_QuotaAutoPausedM
 		Extra: map[string]any{
 			"openai_apikey_responses_websockets_v2_enabled": true,
 			"codex_5h_used_percent":                         96.0,
+			"codex_5h_used_percent_semantics":               codex5hUsedPercentSemanticsCurrent,
 			"auto_pause_5h_threshold":                       0.95,
 		},
 	}

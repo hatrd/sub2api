@@ -59,6 +59,9 @@ const (
 	codexCLIVersion                    = "0.125.0"
 	// Codex 限额快照仅用于后台展示/诊断，不需要每个成功请求都立即落库。
 	openAICodexSnapshotPersistMinInterval = 30 * time.Second
+	// codex_5h_used_percent changed from an inverted legacy value to upstream used%.
+	// Persist this marker with new snapshots so old cached values are not trusted.
+	codex5hUsedPercentSemanticsCurrent = "used_percent_v2"
 )
 
 // OpenAI allowed headers whitelist (for non-passthrough).
@@ -130,11 +133,15 @@ func normalizeCodexFiveHourUsedPercent(raw *float64) *float64 {
 	if raw == nil {
 		return nil
 	}
-	// OpenAI's 5h Codex quota header is remaining%, despite the upstream header
-	// name saying "used"; the canonical codex_5h_used_percent field stores used%.
-	used := 100 - *raw
+	// OpenAI's Codex 5h quota header is already used%, despite the header name
+	// historically being treated as remaining% in this codebase. Keep the canonical
+	// codex_5h_used_percent field aligned with the upstream used percentage.
+	used := *raw
 	if used < 0 {
 		used = 0
+	}
+	if used > 100 {
+		used = 100
 	}
 	return &used
 }
@@ -1531,10 +1538,20 @@ func readOpenAIQuotaUsedPercent(extra map[string]any, window string) float64 {
 	if len(extra) == 0 {
 		return 0
 	}
+	if window == "5h" && !codex5hUsedPercentSemanticsIsCurrent(extra) {
+		return 0
+	}
 	if value, ok := resolveAccountExtraNumber(extra, "codex_"+window+"_used_percent"); ok {
 		return value
 	}
 	return 0
+}
+
+func codex5hUsedPercentSemanticsIsCurrent(extra map[string]any) bool {
+	if len(extra) == 0 {
+		return false
+	}
+	return fmt.Sprint(extra["codex_5h_used_percent_semantics"]) == codex5hUsedPercentSemanticsCurrent
 }
 
 type openAIQuotaAutoPauseCtxKey struct{}
@@ -6127,6 +6144,7 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 	if normalized := snapshot.Normalize(); normalized != nil {
 		if normalized.Used5hPercent != nil {
 			updates["codex_5h_used_percent"] = *normalized.Used5hPercent
+			updates["codex_5h_used_percent_semantics"] = codex5hUsedPercentSemanticsCurrent
 		}
 		if normalized.Reset5hSeconds != nil {
 			updates["codex_5h_reset_after_seconds"] = *normalized.Reset5hSeconds
